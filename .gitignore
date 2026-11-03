@@ -1,0 +1,16 @@
+.venv/
+.research/
+.tools/
+.tmp/
+data/
+dist/
+node_modules/
+__pycache__/
+*.pyc
+*.wgt
+*.log
+.env
+.DS_Store
+tizen/.manifest.tmp
+tizen/author-signature.xml
+tizen/signature1.xml

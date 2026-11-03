@@ -1,0 +1,12 @@
+.git
+.gitignore
+.research
+.tools
+.venv
+data
+dist
+node_modules
+tests
+tools
+*.wgt
+*.log

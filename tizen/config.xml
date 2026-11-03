@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<widget xmlns="http://www.w3.org/ns/widgets"
+        xmlns:tizen="http://tizen.org/ns/widgets"
+        id="http://blink.live/Security"
+        version="1.0.0"
+        viewmodes="maximized">
+
+  <tizen:application id="BlinkLive1.Security"
+                     package="BlinkLive1"
+                     required_version="6.0"/>
+
+  <content src="index.html"/>
+
+  <name>Blink Live</name>
+  <description>Local live view for Blink cameras on Samsung Tizen TV.</description>
+  <author href="http://blink.live" email="local@blink.live">Blink Live</author>
+
+  <icon src="assets/icon.png"/>
+  <feature name="http://tizen.org/feature/network.internet"/>
+
+  <tizen:profile name="tv"/>
+  <tizen:privilege name="http://tizen.org/privilege/internet"/>
+  <tizen:privilege name="http://tizen.org/privilege/tv.inputdevice"/>
+  <tizen:privilege name="http://developer.samsung.com/privilege/productinfo"/>
+
+  <tizen:setting screen-orientation="landscape"
+                 context-menu="disable"
+                 background-support="disable"
+                 encryption="disable"
+                 install-location="auto"
+                 hwkey-event="enable"/>
+
+  <access origin="*" subdomains="true"/>
+</widget>

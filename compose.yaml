@@ -1,0 +1,24 @@
+services:
+  blink-live:
+    build: .
+    container_name: blink-live
+    restart: unless-stopped
+    ports:
+      - "8099:8099"
+    volumes:
+      - blink-live-data:/data
+    environment:
+      TZ: Europe/Copenhagen
+      LOG_LEVEL: INFO
+      # Keep this on 0 for the primary Blink microphone track. If the TV is
+      # silent, try 1 in the TV app's audio-channel setting (or here).
+      BLINK_AUDIO: "1"
+      BLINK_AUDIO_TRACK: "0"
+      MAX_LIVE_SECONDS: "285"
+      # Optional shared secret. If set, also enter it in the TV app settings.
+      # BRIDGE_TOKEN: "change-me"
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  blink-live-data:

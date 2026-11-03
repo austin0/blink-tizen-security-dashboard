@@ -1,0 +1,4 @@
+# Blink's unofficial API. Pinned to the exact upstream commit this bridge was
+# built and tested against; live-view support changes with Blink's API.
+blinkpy @ https://github.com/fronzbot/blinkpy/archive/2687c911a9ed124b466f1a111d0d8403bea70928.zip
+aiohttp==3.14.5

@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src http: https: ws: wss:; img-src 'self' data: http: https:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self' file: http: https:; font-src 'self'; object-src 'self'; base-uri 'none';">
+<meta name="theme-color" content="#221f22">
+<title>Blink / Live</title>
+<link rel="stylesheet" href="css/app.css">
+<!-- Tizen replaces $WEBAPIS with the product API library. On desktop browsers
+     this request simply 404s and the app keeps its MSE fallback. -->
+<script src="$WEBAPIS/webapis/webapis.js"></script>
+<script src="config.js"></script>
+</head>
+<body>
+<div id="app" class="app is-booting">
+
+  <!-- Ambient structure: a quiet control-room grid, never a flat black page. -->
+  <div class="atmosphere" aria-hidden="true">
+    <div class="atmosphere-glow glow-a"></div>
+    <div class="atmosphere-glow glow-b"></div>
+    <div class="atmosphere-grid"></div>
+    <div class="atmosphere-noise"></div>
+    <div class="edge-code edge-code-left">SYS/04&nbsp;&nbsp;OPTICAL&nbsp;RELAY&nbsp;&nbsp;//&nbsp;&nbsp;LAN</div>
+    <div class="edge-code edge-code-right">NO CLOUD RECORDING&nbsp;&nbsp;//&nbsp;&nbsp;LOCAL ONLY</div>
+  </div>
+
+  <!-- ---------------------------------------------------------------- HOME -->
+  <main id="home" class="view home" aria-label="Camera selection">
+    <header class="home-head">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+        <span class="brand-copy">
+          <strong>BLINK<span>/</span>LIVE</strong>
+          <small>RESIDENTIAL OPTICAL RELAY</small>
+        </span>
+      </div>
+
+      <div class="head-meta">
+        <div class="clock-block">
+          <span id="clock" class="clock">--:--</span>
+          <span id="date" class="date">—</span>
+        </div>
+        <div class="bridge-block">
+          <span id="bridgeState" class="bridge-state"><i class="status-dot"></i>BRIDGE CHECK</span>
+          <span id="bridgeAddress" class="bridge-address">—</span>
+        </div>
+      </div>
+    </header>
+
+    <section class="hero">
+      <div class="hero-copy">
+        <p class="kicker"><span class="kicker-index">00</span><span id="channelCount">TWO CHANNELS</span><span class="kicker-rule"></span><span>HOME / LIVE</span></p>
+        <h1>SECURITY<br><em>— LIVE</em></h1>
+        <p class="hero-note" id="heroNote">The house is quiet. Pick a channel to open a direct, encrypted live view.</p>
+      </div>
+
+      <aside class="hero-side" aria-label="System summary">
+        <div class="side-line"><span>UPLINK</span><b id="sideUplink">CHECKING</b></div>
+        <div class="side-line"><span>BLINK</span><b id="sideBlink">CHECKING</b></div>
+        <div class="side-line"><span>STREAMS</span><b id="sideStreams">STANDBY</b></div>
+        <div class="side-signal" aria-hidden="true">
+          <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+        </div>
+        <p class="side-note">Audio + video are remuxed locally. Nothing leaves this LAN.</p>
+      </aside>
+    </section>
+
+    <section id="channelGrid" class="channel-grid" aria-label="Cameras">
+      <div class="channel-skeleton" aria-hidden="true">
+        <span>ESTABLISHING CHANNEL MAP</span><i></i>
+      </div>
+    </section>
+
+    <footer class="home-foot">
+      <div class="remote-hints">
+        <span><kbd>←</kbd><kbd>→</kbd> SELECT</span>
+        <span><kbd>OK</kbd> GO LIVE</span>
+        <span><kbd>RED</kbd> SETTINGS</span>
+      </div>
+      <div class="foot-mark"><span id="footCameraCount">0 CAMERAS</span><span class="foot-sep">/</span><span>MONOKAI PRO</span><span class="foot-sep">/</span><span id="footVersion">v1.0.0</span></div>
+    </footer>
+  </main>
+
+  <!-- -------------------------------------------------------------- VIEWER -->
+  <section id="viewer" class="view viewer" aria-label="Live camera" hidden>
+    <object id="avplaySurface" class="avplay-surface" type="application/avplayer" aria-hidden="true"></object>
+    <video id="liveVideo" class="live-video" playsinline preload="auto"></video>
+    <img id="viewerPoster" class="viewer-poster" alt="">
+    <div class="viewer-grade" aria-hidden="true"></div>
+    <div class="viewer-scan" aria-hidden="true"></div>
+
+    <header class="viewer-head">
+      <button id="viewerBack" class="viewer-back" type="button"><span class="back-arrow">←</span> CAMERAS</button>
+      <div class="viewer-head-right">
+        <span id="viewerState" class="viewer-state"><i class="status-dot"></i>CONNECTING</span>
+        <span id="viewerTimer" class="viewer-timer">00:00 / 05:00</span>
+      </div>
+    </header>
+
+    <div id="viewerLoader" class="viewer-loader">
+      <div class="loader-orbit" aria-hidden="true"><i></i><i></i><i></i><span></span></div>
+      <p class="loader-kicker" id="loaderKicker">CHANNEL 01 / HANDSHAKE</p>
+      <h2 id="loaderTitle">WAKING CAMERA</h2>
+      <p id="loaderMessage" class="loader-message">Blink is opening a secure relay. This can take a few seconds.</p>
+      <div class="loader-track"><i></i></div>
+    </div>
+
+    <div id="viewerError" class="viewer-error" hidden>
+      <p class="loader-kicker">CHANNEL UNAVAILABLE</p>
+      <h2>NO SIGNAL</h2>
+      <p id="viewerErrorMessage">The stream stopped.</p>
+      <div class="viewer-error-actions">
+        <button id="retryStream" class="action-primary" type="button">TRY AGAIN</button>
+        <button id="closeError" class="action-ghost" type="button">BACK</button>
+      </div>
+    </div>
+
+    <footer class="viewer-foot">
+      <div class="viewer-id">
+        <span id="viewerIndex" class="viewer-index">01</span>
+        <div>
+          <h2 id="viewerName">FRONT DOOR</h2>
+          <p id="viewerMeta">BLINK 2K DOORBELL · ONLINE</p>
+        </div>
+      </div>
+      <div class="viewer-controls">
+        <div id="audioMeter" class="audio-meter" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+        <button id="audioButton" class="control-button" type="button"><span class="control-icon">◖</span><span id="audioLabel">SOUND OFF</span></button>
+        <button id="viewerBackButton" class="control-button" type="button">BACK</button>
+      </div>
+      <p class="viewer-hint"><kbd>OK</kbd> SOUND <span>/</span> <kbd>BACK</kbd> CAMERAS</p>
+    </footer>
+  </section>
+
+  <!-- ---------------------------------------------------------------- BOOT -->
+  <section id="boot" class="view state-screen" aria-label="Connecting to bridge">
+    <div class="state-inner">
+      <p class="state-kicker">BLINK / LIVE <span id="bootVersion">v1.0.0</span></p>
+      <h1 class="state-title">FINDING<br><em>THE BRIDGE.</em></h1>
+      <div class="boot-track"><i></i></div>
+      <p id="bootMessage" class="state-message">Contacting the local relay at <b id="bootAddress">—</b>.</p>
+      <div class="state-actions">
+        <button id="bootRetry" class="action-primary" type="button">RETRY NOW</button>
+        <button id="bootSettings" class="action-ghost" type="button">BRIDGE SETTINGS</button>
+      </div>
+      <p class="state-foot">Make sure the TV and the Docker host are on the same network.</p>
+    </div>
+    <div class="state-visual" aria-hidden="true">
+      <div class="radar">
+        <i class="radar-ring ring-a"></i><i class="radar-ring ring-b"></i><i class="radar-ring ring-c"></i>
+        <i class="radar-axis axis-x"></i><i class="radar-axis axis-y"></i>
+        <i class="radar-sweep"></i><i class="radar-core"></i>
+        <span class="radar-label label-top">ACQUIRING RELAY</span>
+        <span class="radar-label label-bottom">LAN / 8099</span>
+      </div>
+      <p class="visual-caption">LOCAL ONLY <span>/</span> NO CLOUD HOP</p>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------- OFFLINE -->
+  <section id="offline" class="view state-screen" aria-label="Bridge offline" hidden>
+    <div class="state-inner">
+      <p class="state-kicker">CHANNEL 00 / NO RELAY</p>
+      <h1 class="state-title">BRIDGE<br><em>OFFLINE.</em></h1>
+      <p class="state-message" id="offlineMessage">The TV could not reach the local bridge.</p>
+      <div class="address-card">
+        <span>BRIDGE ADDRESS</span>
+        <b id="offlineAddress">—</b>
+        <small id="offlineDetail">Check that the container is running and port 8099 is reachable.</small>
+      </div>
+      <div class="state-actions">
+        <button id="offlineRetry" class="action-primary" type="button">TRY AGAIN</button>
+        <button id="offlineSettings" class="action-ghost" type="button">CHANGE ADDRESS</button>
+      </div>
+      <p class="state-foot">TV remote: <kbd>RED</kbd> opens bridge settings from any screen.</p>
+    </div>
+    <div class="state-visual is-down" aria-hidden="true">
+      <div class="radar">
+        <i class="radar-ring ring-a"></i><i class="radar-ring ring-b"></i><i class="radar-ring ring-c"></i>
+        <i class="radar-axis axis-x"></i><i class="radar-axis axis-y"></i>
+        <i class="radar-sweep"></i><i class="radar-core"></i>
+        <span class="radar-label label-top">NO CARRIER</span>
+        <span class="radar-label label-bottom">CHECK BRIDGE URL</span>
+      </div>
+      <p class="visual-caption">SIGNAL LOST <span>/</span> RETRY ON LAN</p>
+    </div>
+  </section>
+
+  <!-- --------------------------------------------------------------- LINK -->
+  <section id="link" class="view state-screen" aria-label="Blink account not linked" hidden>
+    <div class="state-inner">
+      <p class="state-kicker">BRIDGE ONLINE / ACCOUNT MISSING</p>
+      <h1 class="state-title">LINK YOUR<br><em>BLINK ACCOUNT.</em></h1>
+      <p class="state-message">The bridge is running. Open this address on your phone or computer, sign in once, and enter Blink's email code.</p>
+      <div class="address-card link-card">
+        <span>PAIRING PAGE</span>
+        <b id="setupUrl">—</b>
+        <small>Use the Blink account that owns the doorbell and outdoor camera.</small>
+      </div>
+      <ol class="link-steps">
+        <li><b>01</b> Open the pairing page on a device on this LAN.</li>
+        <li><b>02</b> Sign in with <span id="linkEmail">your Blink email</span> and the emailed code.</li>
+        <li><b>03</b> Return here and press <kbd>OK</kbd>.</li>
+      </ol>
+      <div class="state-actions">
+        <button id="linkRetry" class="action-primary" type="button">I'VE LINKED IT — RETRY</button>
+        <button id="linkSettings" class="action-ghost" type="button">BRIDGE SETTINGS</button>
+      </div>
+      <p class="state-foot" id="linkDetail">Blink may occasionally require a new code. The bridge never stores your password.</p>
+    </div>
+    <div class="state-visual is-link" aria-hidden="true">
+      <div class="radar">
+        <i class="radar-ring ring-a"></i><i class="radar-ring ring-b"></i><i class="radar-ring ring-c"></i>
+        <i class="radar-axis axis-x"></i><i class="radar-axis axis-y"></i>
+        <i class="radar-sweep"></i><i class="radar-core"></i>
+        <span class="radar-label label-top">ACCOUNT / UNLINKED</span>
+        <span class="radar-label label-bottom">PAIR ON LAN</span>
+      </div>
+      <p class="visual-caption">IDENTITY MISSING <span>/</span> OPEN SETUP</p>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------- SETTINGS -->
+  <div id="settings" class="modal" hidden>
+    <div class="modal-backdrop" data-close-settings></div>
+    <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+      <div class="modal-head">
+        <div>
+          <p class="state-kicker">LOCAL CONFIGURATION</p>
+          <h2 id="settingsTitle">Bridge settings</h2>
+        </div>
+        <button id="settingsClose" class="icon-button" type="button" aria-label="Close settings">×</button>
+      </div>
+      <div class="modal-body">
+        <label class="field">
+          <span>BRIDGE URL</span>
+          <input id="settingBridge" type="url" inputmode="url" spellcheck="false" placeholder="http://192.0.2.10:8099">
+          <small>Protocol + host + port. No trailing slash.</small>
+        </label>
+        <label class="field">
+          <span>API TOKEN <i>OPTIONAL</i></span>
+          <input id="settingToken" type="text" spellcheck="false" placeholder="Only if BRIDGE_TOKEN is set">
+          <small>Must match the bridge's <code>BRIDGE_TOKEN</code> environment variable.</small>
+        </label>
+        <div class="field">
+          <span class="field-label">CAMERA AUDIO CHANNEL</span>
+          <div class="segmented" role="group" aria-label="Audio channel">
+            <button type="button" data-audio-track="0" class="segment is-active">CHANNEL 1</button>
+            <button type="button" data-audio-track="1" class="segment">CHANNEL 2</button>
+          </div>
+          <small>Blink exposes two AAC tracks. If the first is silent, try channel 2.</small>
+        </div>
+        <p id="settingsError" class="settings-error" hidden></p>
+      </div>
+      <div class="modal-foot">
+        <button id="settingsSave" class="action-primary" type="button">SAVE &amp; RECONNECT</button>
+        <button id="settingsCancel" class="action-ghost" type="button">CANCEL</button>
+      </div>
+    </section>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+</div>
+
+<script src="js/app.js"></script>
+</body>
+</html>
