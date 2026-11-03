@@ -145,6 +145,10 @@ Build a signed `.wgt` with Tizen Studio/Tizen CLI:
 
 Output: `dist/BlinkLive.wgt`.
 
+A signed `.wgt` is intentionally not committed: Samsung distributor certificates
+are tied to a TV/developer account. Build the package with your own profile so it
+can be installed on your TV.
+
 If Tizen CLI is not on `PATH`:
 
 ```powershell
