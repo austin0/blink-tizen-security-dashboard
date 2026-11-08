@@ -16,7 +16,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from .mp4_codec import describe_init
+from .mp4_codec import FragmentScanner, describe_init, moov_end
 
 LOGGER = logging.getLogger(__name__)
 
@@ -34,6 +34,8 @@ class LiveClient:
     ws: Any
     queue: asyncio.Queue = field(default_factory=lambda: asyncio.Queue(maxsize=180))
     pump: asyncio.Task | None = None
+    # False until a late joiner reaches the next fragment boundary.
+    synced: bool = True
 
 
 class LiveSession:
@@ -97,6 +99,7 @@ class LiveSession:
             self._idle_task.cancel()
         # A reconnect can land after the init segment was already parsed.
         if self.ready_info and self.init_bytes:
+            client.synced = False
             client.queue.put_nowait(("json", self.ready_info))
             client.queue.put_nowait(("bytes", self.init_bytes))
         client.pump = asyncio.create_task(
@@ -312,7 +315,11 @@ class LiveSession:
                 + (f" ffmpeg: {tail}" if tail else "")
             )
 
-        self.init_bytes = init
+        # The first read can run past the moov box. Late joiners must receive
+        # only the init segment, then start at a whole fragment.
+        self.init_bytes = init[: moov_end(init)]
+        scanner = FragmentScanner()
+        scanner.feed(init)
         self.ready_info = {
             "type": "ready",
             "video_codec": info["video_codec"],
@@ -333,7 +340,7 @@ class LiveSession:
             chunk = await self.ffmpeg.stdout.read(READ_SIZE)
             if not chunk:
                 break
-            self._broadcast_bytes(chunk)
+            self._broadcast_bytes(chunk, scanner.feed(chunk))
 
         returncode = await self.ffmpeg.wait()
         tail = " | ".join(self._stderr_tail[-4:])
@@ -373,11 +380,15 @@ class LiveSession:
             LOGGER.debug("ffmpeg stderr reader stopped", exc_info=True)
 
     # ----------------------------------------------------------------- output
-    def _broadcast_bytes(self, data: bytes) -> None:
+    def _broadcast_bytes(self, data: bytes, fragment_at: int | None = None) -> None:
         if self._stopping:
             return
         for client in list(self.clients):
-            self._offer(client, "bytes", data)
+            if client.synced:
+                self._offer(client, "bytes", data)
+            elif fragment_at is not None:
+                client.synced = True
+                self._offer(client, "bytes", data[fragment_at:])
 
     async def _broadcast_json(self, payload: dict[str, Any]) -> None:
         if self._stopping:

@@ -55,6 +55,51 @@ def moov_end(data: bytes) -> int | None:
     return None
 
 
+class FragmentScanner:
+    """Track top-level boxes across a stream split into arbitrary chunks."""
+
+    def __init__(self) -> None:
+        self._remaining = 0
+        self._partial = b""
+        self._broken = False
+
+    def feed(self, chunk: bytes) -> int | None:
+        """Return the offset of the first ``moof`` starting in *chunk*, if any.
+
+        A ``moof`` whose header straddles two chunks is not reported; the
+        caller simply waits for the next fragment.
+        """
+
+        first = None
+        pos = 0
+        while pos < len(chunk) and not self._broken:
+            if self._remaining:
+                step = min(self._remaining, len(chunk) - pos)
+                self._remaining -= step
+                pos += step
+                continue
+
+            had_partial = len(self._partial)
+            header = self._partial + chunk[pos : pos + 16 - had_partial]
+            if len(header) < 8:
+                self._partial = header
+                return first
+            size = int.from_bytes(header[:4], "big")
+            if size == 1:
+                if len(header) < 16:
+                    self._partial = header
+                    return first
+                size = int.from_bytes(header[8:16], "big")
+            elif size < 8:
+                self._broken = True
+                return first
+            if first is None and not had_partial and header[4:8] == b"moof":
+                first = pos
+            self._partial = b""
+            self._remaining = size - had_partial
+        return first
+
+
 _CONTAINERS = {
     b"moov": 0,
     b"trak": 0,

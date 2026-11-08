@@ -1411,6 +1411,10 @@
     if (!sb || !ms || ms.readyState !== "open" || sb.updating) {
       return;
     }
+    // A viewer joining a running session receives media that starts later than 0.
+    if (sb.buffered.length && el.liveVideo.currentTime < sb.buffered.start(0)) {
+      el.liveVideo.currentTime = sb.buffered.start(0);
+    }
     if (!state.queue.length) {
       maybeStartPlayback();
       return;
@@ -2096,7 +2100,8 @@
     el.liveVideo.addEventListener("volumechange", updateAudioUI);
 
     document.addEventListener("visibilitychange", function () {
-      if (document.hidden && state.activeView === "viewer") {
+      // Desktop browsers report "hidden" when a window is merely covered.
+      if (document.hidden && state.activeView === "viewer" && hasAvPlay()) {
         closeViewer();
       }
     });
