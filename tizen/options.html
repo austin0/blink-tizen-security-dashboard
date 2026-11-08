@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none';">
+<title>Blink / Live - Camera options</title>
+<link rel="stylesheet" href="css/app.css">
+<link rel="stylesheet" href="css/split.css">
+<link rel="stylesheet" href="css/options.css">
+</head>
+<body class="sp-body">
+<header class="sp-bar">
+  <a class="sp-btn" href="index.html">&larr; CAMERAS</a>
+  <div id="opCameras" class="sp-chips" role="group" aria-label="Camera"></div>
+</header>
+<main class="op-main">
+  <p id="opNote" class="op-note" hidden></p>
+  <form id="opForm" class="op-form"></form>
+  <div class="op-actions">
+    <button id="opApply" class="sp-btn sp-primary" type="button" disabled>APPLY</button>
+    <span id="opStatus" class="sp-note" role="status"></span>
+  </div>
+</main>
+<script src="js/options.js"></script>
+</body>
+</html>

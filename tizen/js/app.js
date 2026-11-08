@@ -73,6 +73,9 @@
 
   function cacheElements() {
     el.app = $("app");
+    el.armControls = $("armControls");
+    el.homeSettings = $("homeSettings");
+    el.viewerTools = $("viewerTools");
     el.home = $("home");
     el.viewer = $("viewer");
     el.boot = $("boot");
@@ -699,6 +702,10 @@
     if (typeof camera.temperature_c === "number") {
       meta.appendChild(document.createTextNode("  ·  " + camera.temperature_c + "°C"));
     }
+    var motionText = motionAgo(camera.last_motion);
+    if (motionText) {
+      meta.appendChild(document.createTextNode("  ·  MOTION " + motionText));
+    }
     info.appendChild(meta);
     button.appendChild(info);
 
@@ -742,6 +749,68 @@
       return;
     }
     focusChannel(index, shouldFocus);
+  }
+
+  function motionAgo(value) {
+    var when = Date.parse(value || "");
+    if (!isFinite(when)) {
+      return "";
+    }
+    var minutes = Math.floor((Date.now() - when) / 60000);
+    if (minutes < 1) {
+      return "JUST NOW";
+    }
+    if (minutes < 60) {
+      return minutes + "M AGO";
+    }
+    if (minutes < 1440) {
+      return Math.floor(minutes / 60) + "H AGO";
+    }
+    return Math.floor(minutes / 1440) + "D AGO";
+  }
+
+  function renderSystems(systems) {
+    el.armControls.textContent = "";
+    systems.forEach(function (system) {
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "arm-button" + (system.armed ? " is-armed" : "");
+      button.textContent = String(system.name).toUpperCase() + " · " + (system.armed ? "ARMED" : "DISARMED");
+      button.addEventListener("click", function () {
+        setSystemArmed(system, button);
+      });
+      el.armControls.appendChild(button);
+    });
+  }
+
+  function loadSystems() {
+    if (!el.armControls) {
+      return;
+    }
+    api("/api/systems").then(function (data) {
+      renderSystems(data.systems || []);
+    }).catch(function () {
+      el.armControls.textContent = "";
+    });
+  }
+
+  function setSystemArmed(system, button) {
+    var next = !system.armed;
+    if (!next && !window.confirm("Disarm " + system.name + "? Motion detection will stop.")) {
+      return;
+    }
+    button.disabled = true;
+    api("/api/systems/" + encodeURIComponent(system.name) + "/arm", {
+      method: "POST",
+      body: JSON.stringify({ armed: next }),
+      timeout: 45000
+    }).then(function (data) {
+      renderSystems(data.systems || []);
+      showToast(system.name + (next ? " armed." : " disarmed."));
+    }).catch(function (err) {
+      button.disabled = false;
+      showToast(err.message || "Blink did not accept that change.", true);
+    });
   }
 
   function moveHomeFocus(delta) {
@@ -804,6 +873,7 @@
         }
         state.cameras = data.cameras || [];
         renderChannels();
+        loadSystems();
         showView("home");
         updateHeader(health);
         if (!state.cameras.length) {
@@ -849,6 +919,7 @@
         var previous = state.selected;
         state.cameras = data.cameras || [];
         renderChannels();
+        loadSystems();
         focusChannel(Math.min(previous, Math.max(0, state.cameras.length - 1)), true);
       });
     }).catch(function () {
@@ -872,6 +943,9 @@
     updateViewerChrome(state.viewerCamera);
     showView("viewer");
     loadViewerCamera();
+    if (state.guard) {
+      state.guard.start();
+    }
   }
 
   function updateViewerChrome(camera) {
@@ -1705,6 +1779,15 @@
   }
 
   function closeViewer() {
+    if (state.guard) {
+      state.guard.stop();
+    }
+    if (state.viewTools) {
+      if (document.fullscreenElement === el.viewer) {
+        document.exitFullscreen();
+      }
+      state.viewTools.reset();
+    }
     state.closingViewer = true;
     state.streamToken += 1;
     clearViewerTimers();
@@ -1732,6 +1815,9 @@
     state.viewerIndex = next;
     state.viewerCamera = state.cameras[next];
     state.autoRetries = 0;
+    if (state.viewTools) {
+      state.viewTools.reset();
+    }
     updateViewerChrome(state.viewerCamera);
     loadViewerCamera();
     showToast("CH " + pad2(next + 1) + " / " + (state.viewerCamera.display_name || state.viewerCamera.name));
@@ -1910,6 +1996,15 @@
       return;
     }
 
+    if (key === 83 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      event.preventDefault();
+      if (document.fullscreenElement) {
+        document.exitFullscreen();
+      }
+      openSettings();
+      return;
+    }
+
     if (state.activeView === "viewer") {
       if (isBackKey(key)) {
         event.preventDefault();
@@ -2062,6 +2157,23 @@
       checkBridge(true);
     });
     el.linkSettings.addEventListener("click", openSettings);
+    el.homeSettings.addEventListener("click", openSettings);
+
+    // Browser-only controls; the TV uses its remote and AVPlay.
+    if (window.BlinkViewTools && !hasAvPlay()) {
+      state.viewTools = window.BlinkViewTools.create(el.viewer, el.liveVideo, function () {
+        return state.viewerCamera;
+      });
+      el.viewerTools.appendChild(state.viewTools.zoomButton);
+      el.viewerTools.appendChild(state.viewTools.snapButton);
+      el.viewerTools.appendChild(state.viewTools.fullButton);
+    }
+    if (window.BlinkWatchGuard && !hasAvPlay()) {
+      state.guard = window.BlinkWatchGuard.create(function () {
+        closeViewer();
+        showToast("Live view stopped to save camera battery.");
+      });
+    }
 
     el.viewerBack.addEventListener("click", closeViewer);
     el.viewerBackButton.addEventListener("click", closeViewer);

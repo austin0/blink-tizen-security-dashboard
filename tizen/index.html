@@ -7,6 +7,7 @@
 <meta name="theme-color" content="#221f22">
 <title>Blink / Live</title>
 <link rel="stylesheet" href="css/app.css">
+<link rel="stylesheet" href="css/split.css">
 <!-- Tizen replaces $WEBAPIS with the product API library. On desktop browsers
      this request simply 404s and the app keeps its MSE fallback. -->
 <script src="$WEBAPIS/webapis/webapis.js"></script>
@@ -37,7 +38,10 @@
       </div>
 
       <div class="head-meta">
+        <span id="armControls" class="arm-controls"></span>
         <a class="split-link" href="split">SPLIT VIEW</a>
+        <a class="split-link" href="options">CAMERA OPTIONS</a>
+        <button id="homeSettings" class="split-link" type="button">SETTINGS</button>
         <div class="clock-block">
           <span id="clock" class="clock">--:--</span>
           <span id="date" class="date">—</span>
@@ -52,7 +56,6 @@
     <section class="hero">
       <div class="hero-copy">
         <p class="kicker"><span class="kicker-index">00</span><span id="channelCount">TWO CHANNELS</span><span class="kicker-rule"></span><span>HOME / LIVE</span></p>
-        <h1>SECURITY<br><em>— LIVE</em></h1>
         <p class="hero-note" id="heroNote">The house is quiet. Pick a channel to open a direct, encrypted live view.</p>
       </div>
 
@@ -94,6 +97,7 @@
     <header class="viewer-head">
       <button id="viewerBack" class="viewer-back" type="button"><span class="back-arrow">←</span> CAMERAS</button>
       <div class="viewer-head-right">
+        <div id="viewerTools" class="sp-tools viewer-tools"></div>
         <span id="viewerState" class="viewer-state"><i class="status-dot"></i>CONNECTING</span>
         <span id="viewerTimer" class="viewer-timer">00:00 / 05:00</span>
       </div>
@@ -264,6 +268,8 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 </div>
 
+<script src="js/viewtools.js"></script>
+<script src="js/guard.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

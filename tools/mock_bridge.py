@@ -19,6 +19,7 @@ from aiohttp import web
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from backend.camera_settings import build_update, describe_doorbell, describe_standard  # noqa: E402
 from backend.mp4_codec import describe_init  # noqa: E402
 
 TIZEN = ROOT / "tizen"
@@ -55,6 +56,7 @@ ensure_demo_frames()
 CAMERAS = [
     {
         "id": "1",
+        "last_motion": "2026-01-01T12:00:00+00:00",
         "name": "Front Door",
         "display_name": "FRONT DOOR",
         "kind": "doorbell",
@@ -204,6 +206,46 @@ async def live_ws(request: web.Request) -> web.WebSocketResponse:
                 await asyncio.wait_for(proc.wait(), timeout=3)
 
 
+SYSTEMS = [{"name": "Home", "armed": True}]
+SETTINGS = {
+    "enabled": True,
+    "illuminator_enable": 2,
+    "illuminator_intensity": 7,
+    "motion_sensitivity": 6,
+    "video_length": 5,
+    "alert_interval": 10,
+    "video_quality": "best",
+    "video_quality_support": ["saver", "standard", "best"],
+    "record_audio_enable": True,
+    "early_termination": True,
+}
+
+
+async def camera_settings(request: web.Request) -> web.Response:
+    if request.match_info["camera_id"] == "2":
+        return web.json_response(
+            {"ok": True, **describe_doorbell({"illuminator_intensity": 1, "led_state": "recording"})}
+        )
+    return web.json_response({"ok": True, **describe_standard(SETTINGS)})
+
+
+async def camera_settings_update(request: web.Request) -> web.Response:
+    body, motion = build_update((await request.json())["changes"], SETTINGS)
+    SETTINGS.update(body)
+    if motion is not None:
+        SETTINGS["enabled"] = motion
+    return web.json_response({"ok": True, "unconfirmed": [], **describe_standard(SETTINGS)})
+
+
+async def systems(request: web.Request) -> web.Response:
+    return web.json_response({"ok": True, "systems": SYSTEMS})
+
+
+async def system_arm(request: web.Request) -> web.Response:
+    SYSTEMS[0]["armed"] = (await request.json())["armed"]
+    return web.json_response({"ok": True, "systems": SYSTEMS})
+
+
 async def on_prepare(request: web.Request, response: web.StreamResponse) -> None:
     response.headers["Access-Control-Allow-Origin"] = "*"
 
@@ -213,6 +255,10 @@ def create_app() -> web.Application:
     app.on_response_prepare.append(on_prepare)
     app.router.add_get("/api/health", health)
     app.router.add_get("/api/cameras", cameras)
+    app.router.add_get("/api/cameras/{camera_id}/settings", camera_settings)
+    app.router.add_post("/api/cameras/{camera_id}/settings", camera_settings_update)
+    app.router.add_get("/api/systems", systems)
+    app.router.add_post("/api/systems/{name}/arm", system_arm)
     app.router.add_get("/api/live/{camera_id}", live_ws)
     app.router.add_get("/mock/thumb/{name}", thumbnail)
     app.router.add_get("/setup", setup)

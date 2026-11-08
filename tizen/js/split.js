@@ -5,7 +5,6 @@
   var MAX_TILES = 4;
   var STAGGER_MS = 1500;
   var MAX_RETRIES = 5;
-  var MAX_ZOOM = 8;
   var KEY_SELECTION = "blinkLive.splitSelection";
 
   var chipsEl = document.getElementById("spChips");
@@ -64,177 +63,26 @@
     this.sound.className = "sp-sound";
     this.sound.textContent = "SOUND OFF";
     this.sound.hidden = true;
-    this.zoomButton = toolButton("1.0x");
-    this.zoomButton.title = "Reset zoom";
-    this.zoomButton.hidden = true;
-    this.snapButton = toolButton("SNAP");
-    this.snapButton.title = "Save the current frame";
-    this.snapButton.disabled = true;
-    this.fullButton = toolButton("FULL");
-    this.fullButton.title = "Fullscreen (or double-click the video)";
     this.status = document.createElement("span");
     this.status.className = "sp-status";
     var tools = document.createElement("div");
     tools.className = "sp-tools";
-    tools.appendChild(this.zoomButton);
-    tools.appendChild(this.snapButton);
-    tools.appendChild(this.fullButton);
+    var viewTools = window.BlinkViewTools.create(this.el, this.video, function () {
+      return camera;
+    });
+    tools.appendChild(viewTools.zoomButton);
+    tools.appendChild(viewTools.snapButton);
+    tools.appendChild(viewTools.fullButton);
     tools.appendChild(this.sound);
     this.el.appendChild(this.video);
     this.el.appendChild(label);
     this.el.appendChild(tools);
     this.el.appendChild(this.status);
 
-    this.scale = 1;
-    this.panX = 0;
-    this.panY = 0;
-    this.snapTimer = 0;
-    this.bindControls();
-  }
-
-  function toolButton(text) {
-    var button = document.createElement("button");
-    button.type = "button";
-    button.className = "sp-tool";
-    button.textContent = text;
-    return button;
-  }
-
-  Tile.prototype.bindControls = function () {
     var self = this;
-    var video = this.video;
-    var drag = null;
-
     this.sound.addEventListener("click", function () {
       setExclusiveSound(self);
     });
-    this.zoomButton.addEventListener("click", function () {
-      self.resetZoom();
-    });
-    this.snapButton.addEventListener("click", function () {
-      self.snapshot();
-    });
-    this.fullButton.addEventListener("click", function () {
-      self.toggleFullscreen();
-    });
-    video.addEventListener("dblclick", function () {
-      self.toggleFullscreen();
-    });
-    video.addEventListener("loadeddata", function () {
-      self.snapButton.disabled = false;
-    });
-    this.el.addEventListener("fullscreenchange", function () {
-      self.fullButton.textContent = document.fullscreenElement === self.el ? "EXIT" : "FULL";
-      self.resetZoom();
-    });
-
-    this.el.addEventListener("wheel", function (event) {
-      event.preventDefault();
-      var rect = self.el.getBoundingClientRect();
-      var pointerX = event.clientX - rect.left;
-      var pointerY = event.clientY - rect.top;
-      var next = Math.min(MAX_ZOOM, Math.max(1, self.scale * Math.exp(-event.deltaY * 0.002)));
-      var ratio = next / self.scale;
-      self.panX = pointerX - (pointerX - self.panX) * ratio;
-      self.panY = pointerY - (pointerY - self.panY) * ratio;
-      self.scale = next;
-      self.applyZoom();
-    }, { passive: false });
-
-    video.addEventListener("pointerdown", function (event) {
-      if (self.scale <= 1 || event.button !== 0) {
-        return;
-      }
-      drag = { x: event.clientX - self.panX, y: event.clientY - self.panY };
-      video.setPointerCapture(event.pointerId);
-      self.el.classList.add("is-dragging");
-    });
-    video.addEventListener("pointermove", function (event) {
-      if (drag) {
-        self.panX = event.clientX - drag.x;
-        self.panY = event.clientY - drag.y;
-        self.applyZoom();
-      }
-    });
-    function endDrag() {
-      drag = null;
-      self.el.classList.remove("is-dragging");
-    }
-    video.addEventListener("pointerup", endDrag);
-    video.addEventListener("pointercancel", endDrag);
-  };
-
-  Tile.prototype.applyZoom = function () {
-    var minX = this.el.clientWidth * (1 - this.scale);
-    var minY = this.el.clientHeight * (1 - this.scale);
-    this.panX = Math.min(0, Math.max(minX, this.panX));
-    this.panY = Math.min(0, Math.max(minY, this.panY));
-    var zoomed = this.scale > 1.001;
-    this.video.style.transform = zoomed
-      ? "translate(" + this.panX + "px," + this.panY + "px) scale(" + this.scale + ")"
-      : "";
-    this.zoomButton.hidden = !zoomed;
-    this.zoomButton.textContent = this.scale.toFixed(1) + "x";
-    this.el.classList.toggle("is-zoomed", zoomed);
-  };
-
-  Tile.prototype.resetZoom = function () {
-    this.scale = 1;
-    this.panX = 0;
-    this.panY = 0;
-    this.applyZoom();
-  };
-
-  Tile.prototype.toggleFullscreen = function () {
-    if (document.fullscreenElement === this.el) {
-      document.exitFullscreen();
-    } else if (this.el.requestFullscreen) {
-      this.el.requestFullscreen();
-    }
-  };
-
-  /* Always saves the whole camera frame, whatever the current zoom. */
-  Tile.prototype.snapshot = function () {
-    var self = this;
-    var video = this.video;
-    if (!video.videoWidth) {
-      return;
-    }
-    var canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    canvas.getContext("2d").drawImage(video, 0, 0);
-    canvas.toBlob(function (blob) {
-      if (!blob) {
-        return;
-      }
-      var url = URL.createObjectURL(blob);
-      var link = document.createElement("a");
-      link.href = url;
-      link.download = snapshotName(self.camera);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      setTimeout(function () {
-        URL.revokeObjectURL(url);
-      }, 10000);
-      self.snapButton.textContent = "SAVED";
-      clearTimeout(self.snapTimer);
-      self.snapTimer = setTimeout(function () {
-        self.snapButton.textContent = "SNAP";
-      }, 1200);
-    }, "image/jpeg", 0.95);
-  };
-
-  function pad2(value) {
-    return (value < 10 ? "0" : "") + value;
-  }
-
-  function snapshotName(camera) {
-    var now = new Date();
-    var name = String(camera.display_name || camera.name || "camera").replace(/[^a-z0-9]+/gi, "-");
-    return name + "-" + now.getFullYear() + pad2(now.getMonth() + 1) + pad2(now.getDate()) +
-      "-" + pad2(now.getHours()) + pad2(now.getMinutes()) + pad2(now.getSeconds()) + ".jpg";
   }
 
   Tile.prototype.setStatus = function (text, bad) {
@@ -437,7 +285,6 @@
   };
 
   Tile.prototype.teardownMedia = function () {
-    this.snapButton.disabled = true;
     this.sb = null;
     this.ms = null;
     this.queue = [];
@@ -561,13 +408,26 @@
     selected = (valid.length ? valid : online).slice(0, MAX_TILES);
   }
 
+  var guard = window.BlinkWatchGuard.create(function () {
+    running = false;
+    syncTiles();
+    updateToggle();
+    noteEl.textContent = "Stopped to save camera battery.";
+  });
+
   toggleEl.addEventListener("click", function () {
     running = !running;
+    if (running) {
+      guard.start();
+    } else {
+      guard.stop();
+    }
     syncTiles();
     updateToggle();
   });
 
   window.addEventListener("pagehide", function () {
+    guard.stop();
     running = false;
     syncTiles();
   });

@@ -15,6 +15,7 @@ from urllib.parse import urlsplit
 from aiohttp import WSMsgType, web
 
 from .blink_service import BlinkManager
+from .camera_settings import SettingsError
 from .hls import HlsManager, serve_hls
 from .live import LiveManager
 from .ts import TsManager
@@ -152,6 +153,10 @@ async def app_index(request: web.Request) -> web.StreamResponse:
     return web.FileResponse(index, headers={"Cache-Control": "no-store"})
 
 
+async def app_options(request: web.Request) -> web.StreamResponse:
+    return web.FileResponse(TIZEN_DIR / "options.html", headers={"Cache-Control": "no-store"})
+
+
 async def app_split(request: web.Request) -> web.StreamResponse:
     return web.FileResponse(TIZEN_DIR / "split.html", headers={"Cache-Control": "no-store"})
 
@@ -210,6 +215,63 @@ async def cameras(request: web.Request) -> web.Response:
             status=409,
         )
     return web.json_response({"ok": True, "cameras": manager.cameras()})
+
+
+async def camera_settings(request: web.Request) -> web.Response:
+    try:
+        result = await _bridge().manager.camera_settings(request.match_info["camera_id"])
+    except Exception as exc:  # noqa: BLE001 - report Blink errors to the page
+        LOGGER.warning("Could not read camera settings: %s", exc)
+        return web.json_response({"ok": False, "error": "Could not read this camera's options."}, status=502)
+    if result is None:
+        return web.json_response({"ok": False, "error": "Camera not found."}, status=404)
+    return web.json_response({"ok": True, **result})
+
+
+async def camera_settings_update(request: web.Request) -> web.Response:
+    # Requiring JSON forces a CORS preflight for browser-originated requests.
+    if request.content_type != "application/json":
+        return web.json_response({"ok": False, "error": "Send JSON."}, status=415)
+    try:
+        payload = await request.json()
+    except ValueError:
+        return web.json_response({"ok": False, "error": "Invalid JSON."}, status=400)
+    changes = payload.get("changes") if isinstance(payload, dict) else None
+    try:
+        result = await _bridge().manager.update_camera_settings(
+            request.match_info["camera_id"], changes
+        )
+    except SettingsError as exc:
+        return web.json_response({"ok": False, "error": str(exc)}, status=400)
+    except RuntimeError as exc:
+        return web.json_response({"ok": False, "error": str(exc)}, status=502)
+    if result is None:
+        return web.json_response({"ok": False, "error": "Camera not found."}, status=404)
+    return web.json_response({"ok": True, **result})
+
+
+async def systems(request: web.Request) -> web.Response:
+    return web.json_response({"ok": True, "systems": _bridge().manager.systems()})
+
+
+async def system_arm(request: web.Request) -> web.Response:
+    # Requiring JSON forces a CORS preflight for browser-originated requests.
+    if request.content_type != "application/json":
+        return web.json_response({"ok": False, "error": "Send JSON."}, status=415)
+    try:
+        payload = await request.json()
+    except ValueError:
+        return web.json_response({"ok": False, "error": "Invalid JSON."}, status=400)
+    armed = payload.get("armed") if isinstance(payload, dict) else None
+    if not isinstance(armed, bool):
+        return web.json_response({"ok": False, "error": "armed must be true or false."}, status=400)
+    manager = _bridge().manager
+    result = await manager.set_armed(request.match_info["name"], armed)
+    if result is None:
+        return web.json_response({"ok": False, "error": "System not found."}, status=404)
+    if not result:
+        return web.json_response({"ok": False, "error": "Blink did not accept that change."}, status=502)
+    return web.json_response({"ok": True, "systems": manager.systems()})
 
 
 async def camera_thumbnail(request: web.Request) -> web.Response:
@@ -451,6 +513,10 @@ def create_app() -> web.Application:
     app.router.add_get("/api/health", health)
     app.router.add_get("/api/doctor", doctor)
     app.router.add_get("/api/cameras", cameras)
+    app.router.add_get("/api/cameras/{camera_id}/settings", camera_settings)
+    app.router.add_post("/api/cameras/{camera_id}/settings", camera_settings_update)
+    app.router.add_get("/api/systems", systems)
+    app.router.add_post("/api/systems/{name}/arm", system_arm)
     app.router.add_get("/api/cameras/{camera_id}/thumbnail", camera_thumbnail)
     app.router.add_post("/api/auth/start", auth_start)
     app.router.add_post("/api/auth/verify", auth_verify)
@@ -464,6 +530,7 @@ def create_app() -> web.Application:
     if TIZEN_DIR.is_dir():
         app.router.add_get("/app/", app_index)
         app.router.add_get("/app/split", app_split)
+        app.router.add_get("/app/options", app_options)
         app.router.add_static("/app/", TIZEN_DIR, show_index=False)
     return app
 

@@ -8,16 +8,30 @@ import hashlib
 import json
 import logging
 import os
+import time
 from pathlib import Path
 from typing import Any
 
 import aiohttp
+from blinkpy import api as blink_api
 from blinkpy.auth import Auth, BlinkTwoFARequiredError
 from blinkpy.blinkpy import Blink
+
+from .camera_settings import (
+    build_update,
+    describe_doorbell,
+    describe_standard,
+    SettingsError,
+    standard_document,
+    unconfirmed,
+)
 
 LOGGER = logging.getLogger(__name__)
 
 REFRESH_SECONDS = 60
+RECENT_MOTION_SECONDS = 7 * 24 * 3600
+SETTINGS_COMMAND_SECONDS = 15
+SETTINGS_READ_BACK_SECONDS = 1.5
 MODEL_NAMES = {
     "orchid": "Blink Video Doorbell 2K",
     "sonoran": "Blink Outdoor 4 2K",
@@ -41,6 +55,8 @@ class BlinkManager:
         self.pending: Blink | None = None
         self.http: aiohttp.ClientSession | None = None
         self._refresh_task: asyncio.Task | None = None
+        self._motion_task: asyncio.Task | None = None
+        self._recent_motion: dict[str, str] = {}
         self._login_lock = asyncio.Lock()
         self._persist_lock = asyncio.Lock()
         self._closed = False
@@ -104,6 +120,9 @@ class BlinkManager:
         self.last_error = None
         await self._persist()
         self._start_refresh_loop()
+        self._motion_task = asyncio.create_task(
+            self._load_recent_motion(), name="blink-recent-motion"
+        )
 
     def _start_refresh_loop(self) -> None:
         if self._refresh_task and not self._refresh_task.done():
@@ -153,13 +172,32 @@ class BlinkManager:
 
     async def close(self) -> None:
         self._closed = True
-        for task in (self._refresh_task,):
+        for task in (self._refresh_task, self._motion_task):
             if task and not task.done():
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await task
         if self.http and not self.http.closed:
             await self.http.close()
+
+    async def _load_recent_motion(self) -> None:
+        """Find each camera's newest clip, which blinkpy only tracks going forward."""
+
+        try:
+            response = await blink_api.request_videos(
+                self.blink, time=time.time() - RECENT_MOTION_SECONDS, page=1
+            )
+            newest: dict[str, str] = {}
+            for entry in response.get("media", []):
+                name = entry.get("device_name")
+                created = entry.get("created_at")
+                if name and created and not entry.get("deleted") and created > newest.get(name, ""):
+                    newest[name] = created
+            self._recent_motion = newest
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - last-motion times are best-effort
+            LOGGER.debug("Could not load recent motion: %s", exc)
 
     # ------------------------------------------------------------------- login
     async def begin_login(self, email: str, password: str) -> dict[str, Any]:
@@ -282,6 +320,7 @@ class BlinkManager:
             "motion": bool(camera.motion_detected),
             "armed": bool(camera.motion_enabled),
             "last_record": camera.last_record,
+            "last_motion": camera.last_record or self._recent_motion.get(camera.name),
             "thumbnail_path": f"/api/cameras/{camera.camera_id}/thumbnail",
             "thumbnail_rev": thumb_rev,
             "stream_path": f"/api/live/{camera.camera_id}",
@@ -295,6 +334,114 @@ class BlinkManager:
         rank = {"doorbell": 0, "outdoor": 1, "mini": 2, "camera": 3}
         cameras.sort(key=lambda cam: (rank.get(cam["kind"], 9), cam["name"].lower()))
         return cameras
+
+    def systems(self) -> list[dict[str, Any]]:
+        blink = self.blink
+        if blink is None or self.state != "ready":
+            return []
+        seen = set()
+        systems = []
+        for name, sync in blink.sync.items():
+            # Mini and doorbell entries can share a network with a sync module.
+            if sync.network_id in seen:
+                continue
+            try:
+                armed = sync.arm
+            except (KeyError, TypeError):
+                continue
+            if armed is None:
+                continue
+            seen.add(sync.network_id)
+            systems.append({"name": name, "armed": bool(armed)})
+        return systems
+
+    async def set_armed(self, name: str, armed: bool) -> bool | None:
+        """Arm or disarm a system. Returns None if the system does not exist."""
+
+        blink = self.blink
+        if blink is None or self.state != "ready" or name not in blink.sync:
+            return None
+        sync = blink.sync[name]
+        if not await sync.async_arm(armed):
+            return False
+        # Show the new state now; the next refresh reports Blink's own value.
+        with contextlib.suppress(KeyError, TypeError):
+            sync.network_info["network"]["armed"] = armed
+        return True
+
+    async def _settings_document(self, camera) -> dict[str, Any]:
+        if camera.camera_type == "doorbell":
+            blink = self.blink
+            url = (
+                f"{blink.urls.base_url}/api/v1/accounts/{blink.account_id}"
+                f"/networks/{camera.network_id}/doorbells/{camera.camera_id}/config"
+            )
+            document = await blink_api.http_get(blink, url)
+            return document if isinstance(document, dict) else {}
+        config = await blink_api.request_camera_info(
+            self.blink, camera.network_id, camera.camera_id
+        )
+        return standard_document(config)
+
+    async def camera_settings(self, camera_id: str) -> dict[str, Any] | None:
+        """Describe a camera's options. Returns None if it does not exist."""
+
+        camera = self.camera_lookup(camera_id)
+        if camera is None:
+            return None
+        if camera.camera_type == "mini":
+            return {
+                "editable": False,
+                "note": "Options are not available for this camera model yet.",
+                "controls": [],
+            }
+        document = await self._settings_document(camera)
+        if camera.camera_type == "doorbell":
+            return describe_doorbell(document)
+        return describe_standard(document)
+
+    async def update_camera_settings(
+        self, camera_id: str, changes: Any
+    ) -> dict[str, Any] | None:
+        """Apply validated changes. Raises SettingsError or RuntimeError on failure."""
+
+        camera = self.camera_lookup(camera_id)
+        if camera is None:
+            return None
+        if camera.camera_type in ("doorbell", "mini"):
+            raise SettingsError("This camera's options can't be changed here.")
+        document = await self._settings_document(camera)
+        body, motion = build_update(changes, document)
+
+        if body:
+            # blinkpy keys routes by model; "catalina" selects the classic route.
+            response = await blink_api.request_update_config(
+                self.blink,
+                camera.network_id,
+                camera.camera_id,
+                product_type="catalina",
+                data=json.dumps(body),
+            )
+            if response is None or response.status != 200:
+                raise RuntimeError(
+                    "Blink did not accept that change. If this camera is live, "
+                    "close the live view and try again."
+                )
+            answer = await response.json(content_type=None)
+            if isinstance(answer, dict) and answer.get("id"):
+                with contextlib.suppress(asyncio.TimeoutError):
+                    await asyncio.wait_for(
+                        blink_api.wait_for_command(self.blink, answer),
+                        timeout=SETTINGS_COMMAND_SECONDS,
+                    )
+        if motion is not None and not await camera.async_arm(motion):
+            raise RuntimeError("Blink did not accept the motion detection change.")
+
+        await asyncio.sleep(SETTINGS_READ_BACK_SECONDS)
+        latest = await self._settings_document(camera)
+        result = describe_standard(latest)
+        result["unconfirmed"] = unconfirmed(body, latest)
+        return result
 
     async def thumbnail(self, camera_id: str) -> bytes | None:
         camera = self.camera_lookup(camera_id)
