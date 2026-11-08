@@ -42,6 +42,21 @@ class AppTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(data["blink"]["ready"])
         self.assertEqual(data["bridge"]["lan_only"], True)
 
+    async def test_health_does_not_expose_stream_session_ids(self) -> None:
+        bridge = bridge_app.BRIDGE
+        bridge.hls._sessions["secret-hls-session"] = object()
+        bridge.ts._sessions["secret-ts-session"] = object()
+        try:
+            response = await self.client.get("/api/health")
+            body = await response.text()
+            data = await response.json()
+        finally:
+            bridge.hls._sessions.clear()
+            bridge.ts._sessions.clear()
+        self.assertNotIn("secret-hls-session", body)
+        self.assertNotIn("secret-ts-session", body)
+        self.assertEqual(len(data["live"]), 2)
+
     async def test_setup_page_and_embedded_app_are_served(self) -> None:
         setup = await self.client.get("/setup")
         self.assertEqual(setup.status, 200)

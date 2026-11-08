@@ -47,6 +47,8 @@ class Bridge:
         self.ts = TsManager(self.manager.camera_lookup, self.max_live_seconds)
 
     def health(self) -> dict:
+        # This endpoint is public, and HLS/TS session IDs grant media access.
+        active = {**self.live.active(), **self.hls.active(), **self.ts.active()}
         return {
             "ok": True,
             "app": "blink-live-bridge",
@@ -60,9 +62,8 @@ class Bridge:
             },
             "blink": self.manager.status(),
             "live": {
-                **self.live.active(),
-                **self.hls.active(),
-                **self.ts.active(),
+                f"stream-{index}": state
+                for index, state in enumerate(active.values(), start=1)
             },
             "ffmpeg": shutil.which("ffmpeg"),
         }
