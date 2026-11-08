@@ -751,6 +751,10 @@
     var count = state.cameras.length;
     var next = (state.selected + delta + count) % count;
     focusChannel(next, true);
+    var selected = el.channelGrid.querySelectorAll(".channel")[state.selected];
+    if (selected && selected.scrollIntoView) {
+      selected.scrollIntoView({ block: "nearest" });
+    }
   }
 
   /* --------------------------------------------------------------- bridge IO */

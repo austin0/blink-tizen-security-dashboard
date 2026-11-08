@@ -231,6 +231,10 @@ code {
   display: flex;
   flex-direction: column;
   padding: var(--pad-y) var(--pad-x) 2.2vh;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
 }
 
 /* ------------------------------------------------------------------ home top */
@@ -530,8 +534,7 @@ code {
   width: 100%;
   max-width: 1460px;
   margin-top: 2.2vh;
-  flex: 0 1 auto;
-  min-height: 0;
+  flex: 0 0 auto;
 }
 
 .channel-skeleton {
