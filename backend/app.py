@@ -151,6 +151,10 @@ async def app_index(request: web.Request) -> web.StreamResponse:
     return web.FileResponse(index, headers={"Cache-Control": "no-store"})
 
 
+async def app_split(request: web.Request) -> web.StreamResponse:
+    return web.FileResponse(TIZEN_DIR / "split.html", headers={"Cache-Control": "no-store"})
+
+
 async def setup_page(request: web.Request) -> web.Response:
     return web.Response(
         text=render_setup_page(),
@@ -361,7 +365,9 @@ async def live_ws(request: web.Request) -> web.StreamResponse:
     await bridge.hls.close()
     await bridge.ts.close()
     try:
-        session = await bridge.live.get_or_create(camera_id, audio_track)
+        session = await bridge.live.get_or_create(
+            camera_id, audio_track, exclusive=request.query.get("multi") != "1"
+        )
     except Exception as exc:  # noqa: BLE001 - report to the TV
         LOGGER.warning("Could not create live session: %s", exc)
         await ws.send_json(
@@ -456,6 +462,7 @@ def create_app() -> web.Application:
     app.router.add_post("/api/live/{camera_id}/stop", live_stop)
     if TIZEN_DIR.is_dir():
         app.router.add_get("/app/", app_index)
+        app.router.add_get("/app/split", app_split)
         app.router.add_static("/app/", TIZEN_DIR, show_index=False)
     return app
 

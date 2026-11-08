@@ -26,6 +26,7 @@ FIRST_FRAME_TIMEOUT = 32.0
 START_TIMEOUT = 45.0
 STOP_TIMEOUT = 8.0
 IDLE_STOP_SECONDS = 10.0
+MAX_SPLIT_SESSIONS = 4
 
 
 @dataclass(eq=False)
@@ -515,7 +516,7 @@ class LiveSession:
 
 
 class LiveManager:
-    """Keeps at most one liveview alive; Blink serialises these anyway."""
+    """Runs one exclusive liveview, or up to MAX_SPLIT_SESSIONS for split view."""
 
     def __init__(self, camera_lookup, max_seconds: int = 285) -> None:
         self._camera_lookup = camera_lookup
@@ -524,7 +525,9 @@ class LiveManager:
         self._lock = asyncio.Lock()
         self.last_error: str | None = None
 
-    async def get_or_create(self, camera_id: str, audio_track: int = 0) -> LiveSession:
+    async def get_or_create(
+        self, camera_id: str, audio_track: int = 0, exclusive: bool = True
+    ) -> LiveSession:
         async with self._lock:
             existing = self._sessions.get(camera_id)
             if (
@@ -534,9 +537,16 @@ class LiveManager:
             ):
                 return existing
 
-            for session in list(self._sessions.values()):
-                await session.stop("Switched to another camera.", retryable=True)
-            self._sessions.clear()
+            if exclusive:
+                for session in list(self._sessions.values()):
+                    await session.stop("Switched to another camera.", retryable=True)
+                self._sessions.clear()
+            else:
+                stale = self._sessions.pop(camera_id, None)
+                if stale is not None:
+                    await stale.stop("Replaced by a new live view.", retryable=True)
+                if len(self._sessions) >= MAX_SPLIT_SESSIONS:
+                    raise RuntimeError("Too many cameras are already live.")
 
             camera = self._camera_lookup(camera_id)
             if camera is None:
