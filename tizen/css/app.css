@@ -1886,6 +1886,14 @@ code {
   font-weight: 600;
 }
 
+.field-check input {
+  display: inline-block;
+  width: auto;
+  margin: 0 0.5em 0 0;
+  padding: 0;
+  vertical-align: middle;
+}
+
 .settings-error {
   margin: 0 0 1.2vh;
   padding: 1.1vh 0.9vw;

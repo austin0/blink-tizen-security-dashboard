@@ -5,6 +5,9 @@
   var MAX_TILES = 4;
   var STAGGER_MS = 1500;
   var MAX_RETRIES = 5;
+  // Video arrives in 4-second fragments, so a normal buffer can exceed one fragment.
+  var MAX_BEHIND_SECONDS = 9;
+  var CATCH_UP_SECONDS = 4;
   var KEY_SELECTION = "blinkLive.splitSelection";
 
   var chipsEl = document.getElementById("spChips");
@@ -241,8 +244,11 @@
     var start = ranges.start(0);
     var end = ranges.end(ranges.length - 1);
     var now = this.video.currentTime;
-    if (now < start || end - now > 4) {
-      this.video.currentTime = Math.max(start, end - 0.5);
+    if (now < start) {
+      this.video.currentTime = start;
+      now = start;
+    } else if (end - now > MAX_BEHIND_SECONDS) {
+      this.video.currentTime = end - CATCH_UP_SECONDS;
       now = this.video.currentTime;
     }
     if (now - start > 30) {

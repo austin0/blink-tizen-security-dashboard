@@ -3,8 +3,29 @@
   "use strict";
 
   var KEY_MINUTES = "blinkLive.guardMinutes";
+  var KEY_OFF = "blinkLive.guardOff";
   var DEFAULT_MINUTES = 10;
   var PROMPT_SECONDS = 60;
+
+  function isEnabled() {
+    try {
+      return window.localStorage.getItem(KEY_OFF) !== "1";
+    } catch (err) {
+      return true;
+    }
+  }
+
+  function setEnabled(enabled) {
+    try {
+      if (enabled) {
+        window.localStorage.removeItem(KEY_OFF);
+      } else {
+        window.localStorage.setItem(KEY_OFF, "1");
+      }
+    } catch (err) {
+      /* The prompt simply stays on. */
+    }
+  }
 
   function watchMinutes() {
     var value = NaN;
@@ -41,7 +62,9 @@
 
     function start() {
       stop();
-      watchTimer = setTimeout(showPrompt, watchMinutes() * 60000);
+      if (isEnabled()) {
+        watchTimer = setTimeout(showPrompt, watchMinutes() * 60000);
+      }
     }
 
     function button(text, className, onClick) {
@@ -54,6 +77,10 @@
     }
 
     function showPrompt() {
+      // It may have been switched off in another tab since this timer started.
+      if (!isEnabled()) {
+        return;
+      }
       var seconds = Math.min(PROMPT_SECONDS, Math.ceil(watchMinutes() * 60));
       // A deadline keeps this accurate if a hidden tab's timers are throttled.
       var deadline = Date.now() + seconds * 1000;
@@ -90,5 +117,5 @@
     return { start: start, stop: stop };
   }
 
-  window.BlinkWatchGuard = { create: create };
+  window.BlinkWatchGuard = { create: create, isEnabled: isEnabled, setEnabled: setEnabled };
 })();

@@ -139,6 +139,8 @@
 
     el.settingBridge = $("settingBridge");
     el.settingToken = $("settingToken");
+    el.settingGuardField = $("settingGuardField");
+    el.settingGuard = $("settingGuard");
     el.settingsError = $("settingsError");
     el.settingsSave = $("settingsSave");
     el.settingsCancel = $("settingsCancel");
@@ -1065,6 +1067,10 @@
 
     var path = state.viewerCamera.stream_path;
     var query = "?audio_track=" + settings.audioTrack;
+    if (!hasAvPlay()) {
+      // Browser tabs may watch different cameras without stopping each other.
+      query += "&multi=1";
+    }
     if (settings.token) {
       query += "&token=" + encodeURIComponent(settings.token);
     }
@@ -1834,6 +1840,10 @@
     state.settingsAudio = settings.audioTrack;
     el.settingBridge.value = settings.bridge;
     el.settingToken.value = settings.token;
+    if (window.BlinkWatchGuard && !hasAvPlay()) {
+      el.settingGuardField.hidden = false;
+      el.settingGuard.checked = window.BlinkWatchGuard.isEnabled();
+    }
     el.settingsError.hidden = true;
     el.settingsError.textContent = "";
     updateAudioSegments();
@@ -1924,6 +1934,9 @@
     writeStored(KEY_BRIDGE, settings.bridge);
     writeStored(KEY_TOKEN, settings.token);
     writeStored(KEY_AUDIO, String(settings.audioTrack));
+    if (window.BlinkWatchGuard && !hasAvPlay()) {
+      window.BlinkWatchGuard.setEnabled(el.settingGuard.checked);
+    }
     state.health = null;
     state.cameras = [];
     closeSettings();
