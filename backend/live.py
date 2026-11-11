@@ -544,6 +544,7 @@ class LiveManager:
             if (
                 existing is not None
                 and not existing.finished
+                and not existing._stopping
                 and existing.audio_track == (1 if audio_track else 0)
             ):
                 return existing

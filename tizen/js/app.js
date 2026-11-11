@@ -20,6 +20,7 @@
   var KEY_BRIDGE = "blinkLive.bridge";
   var KEY_TOKEN = "blinkLive.token";
   var KEY_AUDIO = "blinkLive.audioTrack";
+  var KEY_SOUND_OFF = "blinkLive.soundOff";
   var MAX_LIVE_SECONDS = 285;
   var LIVE_LIMIT_LABEL = "05:00";
 
@@ -1047,16 +1048,21 @@
       state.autoRetries = 0;
     }
     closeWebSocket();
-    destroyMediaSource();
     state.connecting = true;
-    el.viewerError.hidden = true;
-    el.viewerLoader.hidden = false;
-    el.viewer.classList.remove("is-live");
-    setViewerState("waking", isReconnect ? "RECONNECTING" : "WAKING");
-    if (!isReconnect) {
-      setLoader("CHANNEL " + pad2(state.viewerIndex + 1) + " / HANDSHAKE", "WAKING CAMERA", "Blink is opening a secure relay. This can take a few seconds.");
+    if (state.silentReconnect) {
+      // Keep the picture on screen and carry on with the same buffer.
+      state.mseToken = token;
     } else {
-      setLoader("CHANNEL " + pad2(state.viewerIndex + 1) + " / RECONNECT", "REOPENING THE EYE", "Blink ended the previous session. Starting a fresh live view.");
+      destroyMediaSource();
+      el.viewerError.hidden = true;
+      el.viewerLoader.hidden = false;
+      el.viewer.classList.remove("is-live");
+      setViewerState("waking", isReconnect ? "RECONNECTING" : "WAKING");
+      if (!isReconnect) {
+        setLoader("CHANNEL " + pad2(state.viewerIndex + 1) + " / HANDSHAKE", "WAKING CAMERA", "Blink is opening a secure relay. This can take a few seconds.");
+      } else {
+        setLoader("CHANNEL " + pad2(state.viewerIndex + 1) + " / RECONNECT", "REOPENING THE EYE", "Blink ended the previous session. Starting a fresh live view.");
+      }
     }
     clearTimeout(state.connectTimer);
     state.connectTimer = window.setTimeout(function () {
@@ -1376,13 +1382,25 @@
       return;
     }
     if (message.type === "status") {
-      if (message.state === "waking") {
+      if (message.state === "waking" && !state.silentReconnect) {
         setLoader("CHANNEL " + pad2(state.viewerIndex + 1) + " / WAKE", "WAKING CAMERA", message.message || "The camera is waking up.");
         setViewerState("waking", "WAKING");
       }
       return;
     }
     if (message.type === "ready") {
+      if (state.silentReconnect && canSplice() && sameCodecs(state.streamInfo, message)) {
+        state.silentReconnect = false;
+        state.connecting = false;
+        state.autoRetries = 0;
+        clearTimeout(state.connectTimer);
+        state.streamInfo = message;
+        state.streamStartedAt = Date.now();
+        state.queue.push(window.BlinkSplice.MARK);
+        pumpQueue(token);
+        return;
+      }
+      state.silentReconnect = false;
       state.streamInfo = message;
       state.audioAvailable = !!message.audio_codec;
       state.audioOn = false;
@@ -1400,6 +1418,10 @@
     if (message.type === "error") {
       clearTimeout(state.connectTimer);
       state.connecting = false;
+      if (state.silentReconnect && message.retryable !== false) {
+        scheduleReconnect(message.message);
+        return;
+      }
       showViewerError(message.message || "The live view failed.", message.retryable !== false);
       return;
     }
@@ -1463,8 +1485,9 @@
         sb.mode = "segments";
         state.sb = sb;
         sb.addEventListener("updateend", function () {
-          if (token === state.streamToken) {
-            pumpQueue(token);
+          // A spliced reconnect keeps this buffer under a newer stream token.
+          if (state.sb === sb) {
+            pumpQueue(state.mseToken);
           }
         });
         pumpQueue(token);
@@ -1504,6 +1527,16 @@
       return;
     }
     var chunk = state.queue.shift();
+    if (window.BlinkSplice && chunk === window.BlinkSplice.MARK) {
+      try {
+        window.BlinkSplice.apply(sb);
+      } catch (spliceErr) {
+        showViewerError("Could not continue the live video: " + spliceErr.message, true);
+        return;
+      }
+      pumpQueue(token);
+      return;
+    }
     try {
       sb.appendBuffer(chunk);
     } catch (err) {
@@ -1532,7 +1565,7 @@
     if (!el.liveVideo.paused) {
       return;
     }
-    if (state.audioAvailable && !state.audioBlocked) {
+    if (state.audioAvailable && !state.audioBlocked && readStored(KEY_SOUND_OFF) !== "1") {
       el.liveVideo.muted = false;
       state.audioOn = true;
     } else {
@@ -1585,6 +1618,7 @@
       el.liveVideo.muted = true;
       state.audioOn = false;
     }
+    writeStored(KEY_SOUND_OFF, el.liveVideo.muted ? "1" : "0");
     updateAudioUI();
   }
 
@@ -1695,6 +1729,23 @@
     stopViewerTimer();
   }
 
+  function canSplice() {
+    return !!(
+      window.BlinkSplice &&
+      state.playerMode === "mse" &&
+      !hasAvPlay() &&
+      state.ms &&
+      state.ms.readyState === "open" &&
+      state.sb &&
+      !el.liveVideo.error &&
+      el.viewer.classList.contains("is-live")
+    );
+  }
+
+  function sameCodecs(previous, next) {
+    return !!previous && previous.video_codec === next.video_codec && previous.audio_codec === next.audio_codec;
+  }
+
   function scheduleReconnect(reason) {
     if (state.activeView !== "viewer" || state.closingViewer) {
       return;
@@ -1702,6 +1753,18 @@
     state.autoRetries += 1;
     if (state.autoRetries > 4) {
       showViewerError(reason || "The live view could not be restored.", true);
+      return;
+    }
+    if (canSplice()) {
+      state.silentReconnect = true;
+      state.connecting = false;
+      closeWebSocket();
+      clearTimeout(state.reconnectTimer);
+      state.reconnectTimer = window.setTimeout(function () {
+        if (state.activeView === "viewer" && !state.closingViewer) {
+          startCurrentPlayer(true);
+        }
+      }, state.autoRetries > 1 ? 1400 : 300);
       return;
     }
     if (state.playerMode === "avplay") {
@@ -1743,6 +1806,7 @@
   }
 
   function destroyMediaSource() {
+    state.silentReconnect = false;
     state.mseToken = 0;
     state.queue = [];
     if (el.liveVideo) {

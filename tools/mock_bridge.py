@@ -7,9 +7,11 @@ Then open http://127.0.0.1:8098/app/ (it injects a localhost config.js).
 
 from __future__ import annotations
 
+import os
 import asyncio
 import contextlib
 import shutil
+import time
 import subprocess
 import sys
 from pathlib import Path
@@ -36,7 +38,7 @@ def ensure_demo_frames() -> None:
         return
     specs = [
         (FRONT, "testsrc2=size=1280x720:rate=1,eq=saturation=0.45:contrast=1.05"),
-        (GARDEN, "testsrc2=size=1280x720:rate=1,eq=saturation=0.28:contrast=1.1:hue=80"),
+        (GARDEN, "testsrc2=size=1280x720:rate=1,eq=saturation=0.28:contrast=1.1,hue=h=80"),
     ]
     for path, video_filter in specs:
         if path.is_file():
@@ -168,7 +170,12 @@ async def live_ws(request: web.Request) -> web.WebSocketResponse:
     assert proc.stdout is not None
     buffer = b""
     info = None
+    # Set these to rehearse Blink's session limit and the camera wake delay.
+    session_seconds = float(os.environ.get("MOCK_SESSION_SECONDS", "0"))
+    wake_seconds = float(os.environ.get("MOCK_WAKE_SECONDS", "0"))
     try:
+        await asyncio.sleep(wake_seconds)
+        deadline = time.monotonic() + session_seconds
         while len(buffer) < 4 * 1024 * 1024:
             chunk = await proc.stdout.read(65536)
             if not chunk:
@@ -198,6 +205,12 @@ async def live_ws(request: web.Request) -> web.WebSocketResponse:
             if ws.closed:
                 break
             await ws.send_bytes(chunk)
+            if session_seconds and time.monotonic() >= deadline:
+                await ws.send_json(
+                    {"type": "ended", "message": "Reconnecting…", "retryable": True}
+                )
+                await ws.close()
+                break
     finally:
         if proc.returncode is None:
             with contextlib.suppress(ProcessLookupError):

@@ -8,6 +8,7 @@
   // Video arrives in 4-second fragments, so a normal buffer can exceed one fragment.
   var MAX_BEHIND_SECONDS = 9;
   var CATCH_UP_SECONDS = 4;
+  var SPLICE = window.BlinkSplice.MARK;
   var KEY_SELECTION = "blinkLive.splitSelection";
 
   var chipsEl = document.getElementById("spChips");
@@ -101,7 +102,9 @@
     if (token) {
       url += "&token=" + encodeURIComponent(token);
     }
-    this.setStatus("Connecting…");
+    if (!this.canSplice()) {
+      this.setStatus("Connecting…");
+    }
     var ws = new WebSocket(url);
     ws.binaryType = "arraybuffer";
     this.ws = ws;
@@ -128,20 +131,43 @@
     };
   };
 
+  /* True when the next session can continue this tile's existing picture. */
+  Tile.prototype.canSplice = function () {
+    return !!(
+      this.sb &&
+      this.ms &&
+      this.ms.readyState === "open" &&
+      !this.video.error &&
+      this.sb.buffered.length
+    );
+  };
+
   Tile.prototype.onMessage = function (message) {
+    var quiet = this.canSplice();
     if (message.type === "status") {
-      this.setStatus(message.message || "Waking camera…");
+      if (!quiet) {
+        this.setStatus(message.message || "Waking camera…");
+      }
     } else if (message.type === "ready") {
       this.retries = 0;
+      if (quiet && this.codecs === message.video_codec + "/" + message.audio_codec) {
+        this.queue.push(SPLICE);
+        this.pump();
+        return;
+      }
       this.setStatus("Receiving picture…");
       this.setupMedia(message);
     } else if (message.type === "error") {
-      this.setStatus(message.message || "The live view failed.", true);
+      if (!quiet || message.retryable === false) {
+        this.setStatus(message.message || "The live view failed.", true);
+      }
       if (message.retryable === false) {
         this.failed = true;
       }
     } else if (message.type === "ended") {
-      this.setStatus(message.message || "Reconnecting…");
+      if (!quiet) {
+        this.setStatus(message.message || "Reconnecting…");
+      }
       if (!message.retryable) {
         this.failed = true;
       }
@@ -156,16 +182,19 @@
       this.setStatus("Could not keep this camera connected. Press STOP, then GO LIVE to retry.", true);
       return;
     }
-    if (!this.status.classList.contains("is-bad")) {
+    var quiet = this.canSplice();
+    if (!quiet && !this.status.classList.contains("is-bad")) {
       this.setStatus("Reconnecting…");
     }
     clearTimeout(this.retryTimer);
     this.retryTimer = setTimeout(function () {
       if (!self.stopped) {
-        self.teardownMedia();
+        if (!self.canSplice()) {
+          self.teardownMedia();
+        }
         self.connect();
       }
-    }, 2000 * this.retries);
+    }, quiet && this.retries === 1 ? 300 : 2000 * this.retries);
   };
 
   Tile.prototype.setupMedia = function (info) {
@@ -178,6 +207,7 @@
     var video = info.video_codec || "avc1.42E01E";
     var mime = 'video/mp4; codecs="' + video + (info.audio_codec ? "," + info.audio_codec : "") + '"';
     this.hasAudio = !!info.audio_codec;
+    this.codecs = info.video_codec + "/" + info.audio_codec;
     if (!MediaSource.isTypeSupported(mime)) {
       mime = 'video/mp4; codecs="' + video + '"';
       this.hasAudio = false;
@@ -272,6 +302,11 @@
         return;
       }
       var chunk = this.queue.shift();
+      if (chunk === SPLICE) {
+        window.BlinkSplice.apply(sb);
+        this.pump();
+        return;
+      }
       sb.appendBuffer(chunk);
       this.setStatus("");
     } catch (err) {

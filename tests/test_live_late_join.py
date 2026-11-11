@@ -9,8 +9,9 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
-from backend.live import LiveSession
+from backend.live import LiveManager, LiveSession
 from backend.mp4_codec import FragmentScanner, moov_end
 
 
@@ -41,6 +42,21 @@ class FragmentScannerTests(unittest.TestCase):
         scanner = FragmentScanner()
         self.assertIsNone(scanner.feed(moof[:3]))
         self.assertIsNone(scanner.feed(moof[3:]))
+
+
+class ReconnectDuringStopTests(unittest.IsolatedAsyncioTestCase):
+    async def test_stopping_session_is_not_reused(self) -> None:
+        manager = LiveManager(lambda camera_id: object())
+        stopping = LiveSession(camera=None, manager=manager)
+        stopping._stopping = True
+        manager._sessions["1"] = stopping
+        with (
+            patch.object(LiveSession, "stop", AsyncMock()) as stop,
+            patch.object(LiveSession, "start"),
+        ):
+            session = await manager.get_or_create("1", exclusive=False)
+        stop.assert_awaited_once()
+        self.assertIsNot(session, stopping)
 
 
 class LateJoinDeliveryTests(unittest.IsolatedAsyncioTestCase):
